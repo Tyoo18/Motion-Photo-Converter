@@ -11,14 +11,8 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [downloadLink, setDownloadLink] = useState("");
-
-  // [STATE]: State untuk mendeteksi orientasi rasio aspek video (Portrait/Landscape)
   const [isPortrait, setIsPortrait] = useState(false);
-
-  // [STATE]: State slider absolut untuk timeline detik video
   const [sliderValue, setSliderValue] = useState(0);
-
-  // [STATE]: State interaktif untuk mendeteksi file drag-over di atas dropzone
   const [isDragging, setIsDragging] = useState(false);
 
   // [INIT]: Ref untuk mengontrol pemutaran dan frame video player secara langsung
@@ -28,7 +22,6 @@ export default function Home() {
   const processVideoFile = (file) => {
     if (!file) return;
 
-    // [UTIL]: Revoke URL lama untuk menghindari kebocoran memori (memory leak)
     if (videoPreviewUrl) {
       URL.revokeObjectURL(videoPreviewUrl);
     }
@@ -41,25 +34,25 @@ export default function Home() {
     setIsPortrait(false);
   };
 
-  // [HANDLER]: Mengatur pergantian file video via input klik biasa
+  // [HANDLER]: Menangani perubahan file lewat file picker biasa
   const handleVideoChange = (e) => {
     const file = e.target.files[0];
     processVideoFile(file);
   };
 
-  // [HANDLER]: Mengaktifkan glow state saat file diseret masuk ke area input
+  // [HANDLER]: Efek drag-over untuk indikasi dropzone aktif
   const handleDragOver = (e) => {
     e.preventDefault();
     setIsDragging(true);
   };
 
-  // [HANDLER]: Menghapus glow state saat file diseret keluar dari area input
+  // [HANDLER]: Efek drag-leave saat file ditarik keluar dari dropzone
   const handleDragLeave = (e) => {
     e.preventDefault();
     setIsDragging(false);
   };
 
-  // [HANDLER]: Memproses file langsung saat dilepas (drop) di area input
+  // [HANDLER]: Menangani file video yang di-drop ke area dropzone
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragging(false);
@@ -71,53 +64,77 @@ export default function Home() {
     }
   };
 
-  // [HANDLER]: Deteksi metadata video player untuk durasi, rasio aspek, dan posisi default slider
+  // [HANDLER]: Setup konfigurasi durasi awal dan pencegahan glitch frame akhir saat metadata video termuat
   const handleLoadedMetadata = (e) => {
     const videoEl = e.target;
-    const duration = videoEl.duration;
+    const duration = parseFloat(videoEl.duration.toFixed(1));
+
+    // [STATE]: Set durasi asli video ke state
     setVideoDuration(duration);
-
-    // [STATE]: Set bendera portrait jika tinggi video melebihi lebarnya
+    // [STATE]: Cek dimensi aspek rasio video portrait/landscape
     setIsPortrait(videoEl.videoHeight > videoEl.videoWidth);
-
-    // [STATE]: Inisialisasi slider otomatis di 0.1 detik menjelang akhir video
-    setSliderValue(Math.max(0, duration - 0.1));
+    // [STATE]: Set otomatis ke 0.1 detik sebelum video berakhir demi stabilitas browser native & API backend
+    setSliderValue(parseFloat((duration - 0.1).toFixed(1)));
   };
 
-  // [UTIL]: Sinkronisasi real-time frame video player mengikuti pergeseran slider timeline
+  // [STATE]: Mengubah posisi video frame saat slider digeser oleh user
   useEffect(() => {
     if (!videoRef.current || !videoDuration) return;
     videoRef.current.currentTime = sliderValue;
   }, [sliderValue, videoDuration]);
 
-  // [CALC]: Kalkulasi badge teks dan deskripsi kalkulatif untuk payload API backend
+  // [CALC]: Hitung batas aman maksimal slider kanan (0.1 detik sebelum video selesai)
+  const maxSafeSliderValue = videoDuration
+    ? parseFloat((videoDuration - 0.1).toFixed(1))
+    : 0;
   const distanceFromEnd = videoDuration - sliderValue;
+
   let displayBadge = "";
   let descriptionText = "";
   let computedCoverTime = 0;
 
-  // [VALIDATE]: Kondisional penyusunan teks informasi timeline slider
-  if (sliderValue === 0) {
+  const tolerance = 0.05;
+
+  // [CALC]: Logic conditioning untuk memanipulasi teks visual (illusion of perfection)
+  if (
+    videoDuration > 0 &&
+    Math.abs(sliderValue - maxSafeSliderValue) < tolerance
+  ) {
+    // [FORMAT]: Slider rata kanan mentok, tampilkan badge "End" dengan deskripsi clean (illusion of perfection)
+    displayBadge = "End";
+    descriptionText =
+      "Freeze snapshot will be taken from the end of the video.";
+    computedCoverTime = -0.1;
+  } else if (sliderValue < tolerance && videoDuration > 0) {
+    // [FORMAT]: Slider rata kiri mentok (awal video)
     displayBadge = "Start";
     descriptionText =
       "Freeze snapshot will be taken from the beginning of the video.";
     computedCoverTime = 0;
-  } else if (videoDuration > 0 && sliderValue >= videoDuration) {
-    displayBadge = "End";
-    descriptionText =
-      "Freeze snapshot will be taken from the end of the video.";
-    computedCoverTime = -0.001;
-  } else if (videoDuration > 0 && sliderValue > videoDuration / 2) {
-    displayBadge = `-${distanceFromEnd.toFixed(1)}s`;
-    descriptionText = `Freeze snapshot will be taken ${distanceFromEnd.toFixed(1)}s before the video ends.`;
-    computedCoverTime = -parseFloat(distanceFromEnd.toFixed(1));
+  } else if (videoDuration > 0) {
+    // [FORMAT]: Slider berada di area tengah timeline video
+    if (sliderValue > videoDuration / 2) {
+      displayBadge = `-${distanceFromEnd.toFixed(1)}s`;
+      descriptionText = `Freeze snapshot will be taken ${distanceFromEnd.toFixed(1)}s from the end.`;
+      computedCoverTime = -parseFloat(distanceFromEnd.toFixed(1));
+    } else {
+      displayBadge = `+${sliderValue.toFixed(1)}s`;
+      descriptionText = `Freeze snapshot will be taken ${sliderValue.toFixed(1)}s from the beginning.`;
+      computedCoverTime = parseFloat(sliderValue.toFixed(1));
+    }
   } else {
-    displayBadge = `+${sliderValue.toFixed(1)}s`;
-    descriptionText = `Freeze snapshot will be taken ${sliderValue.toFixed(1)}s from the beginning.`;
-    computedCoverTime = parseFloat(sliderValue.toFixed(1));
+    // [FORMAT]: State default saat video belum di-upload
+    displayBadge = "—";
+    descriptionText = "Upload a video to calibrate freezing frame time.";
+    computedCoverTime = 0;
   }
 
-  // [FETCH]: Mengirimkan payload multipart-form data ke endpoint API konversi biner
+  // [FORMAT]: Jika konversi sudah selesai, timpa instruksi teks menjadi panduan pasca-konversi yang tegas
+  if (downloadLink) {
+    descriptionText = "Conversion complete!";
+  }
+
+  // [FETCH]: Kirim payload multipart form data ke server endpoint api
   const handleConvert = async () => {
     if (!videoFile) {
       setError("Pilih video dulu");
@@ -152,11 +169,9 @@ export default function Home() {
     }
   };
 
-  // [RENDER]: Komponen antarmuka (UI) bento grid dengan structural utility classes
   return (
     <main className="min-h-screen bg-[#0a0a0a] text-[#ffffff] flex flex-col items-center justify-center p-4 sm:p-8 selection:bg-white selection:text-black">
       <div className="w-full max-w-4xl flex flex-col gap-6">
-        {/* Header Section */}
         <header className="text-center sm:text-left mb-2">
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
             Motion Photo Converter
@@ -166,11 +181,10 @@ export default function Home() {
           </p>
         </header>
 
-        {/* TOP SECTION: Adaptive Grid (Menggunakan items-stretch untuk menjamin tinggi simetris sempurna) */}
+        {/* [RENDER]: Preview area grid layout */}
         <section
           className={`grid gap-4 items-stretch transition-all duration-500 ease-in-out ${videoFile ? "grid-cols-1 md:grid-cols-2" : "grid-cols-1"}`}
         >
-          {/* Box Input Dropzone: Garis border dikunci di base class agar tidak hilang saat transisi state */}
           <div
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
@@ -191,7 +205,6 @@ export default function Home() {
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed z-10"
             />
             <div className="flex flex-col items-center gap-4 pointer-events-none">
-              {/* [STYLE]: Icon bulat bertransisi dinamis mengikuti status upload / seret file */}
               <div
                 className={`w-12 h-12 rounded-full bg-[#262626] flex items-center justify-center border transition-all duration-300 ${
                   isDragging
@@ -203,14 +216,13 @@ export default function Home() {
                   {videoFile ? "↺" : "+"}
                 </span>
               </div>
-              {/* [FORMAT]: Teks instruksi dinamis untuk UI yang interaktif */}
               <div className="px-4">
                 <p className="text-sm font-medium text-[#e5e5e5]">
                   {videoFile
                     ? "Want to change the video?"
                     : "Click or drag video file"}
                 </p>
-                <p className="text-xs text-[#737373] mt-1.5 truncate max-w[260px] font-mono">
+                <p className="text-xs text-[#737373] mt-1.5 truncate max-w-65 font-mono">
                   {videoFile
                     ? `Current: ${videoFile.name}`
                     : "Supports MP4, MOV, or WebM clips"}
@@ -219,7 +231,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Box Preview Zone: Orientasi adaptif terhadap dimensi video */}
           {videoFile && (
             <div
               className={`relative bg-[#161616] border border-[#262626] rounded-2xl p-4 flex flex-col items-center justify-center animate-fade-in w-full overflow-hidden ${isPortrait ? "h-auto" : "min-h-65"}`}
@@ -237,8 +248,7 @@ export default function Home() {
                   playsInline
                 />
 
-                {/* Mobile Floating Overlay Bar: Otomatis aktif menggantikan area dropzone utama di perangkat mobile */}
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to from-black/95 via-black/60 to-transparent p-4 flex items-center justify-between gap-3 md:hidden z-20">
+                <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/95 via-black/60 to-transparent p-4 flex items-center justify-between gap-3 md:hidden z-20">
                   <p className="text-xs text-[#d4d4d4] truncate max-w-[55%] font-mono">
                     {videoFile.name}
                   </p>
@@ -258,10 +268,9 @@ export default function Home() {
           )}
         </section>
 
-        {/* BOTTOM SECTION: Control Panel Dashboard */}
+        {/* [RENDER]: Control panel & slider configuration */}
         <section className="bg-[#161616] border border-[#262626] rounded-2xl p-6 flex flex-col gap-6">
-          {/* Timeline Slider Section */}
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <label className="text-xs font-semibold tracking-wider uppercase text-[#a3a3a3]">
                 Cover Time Offset
@@ -271,27 +280,29 @@ export default function Home() {
               </span>
             </div>
 
-            <input
-              type="range"
-              min="0"
-              max={videoDuration || 10}
-              step="0.1"
-              value={sliderValue}
-              onChange={(e) => setSliderValue(parseFloat(e.target.value))}
-              disabled={loading || !videoFile}
-              className="custom-slider w-full accent-white disabled:opacity-30 disabled:cursor-not-allowed"
-            />
+            {/* [STYLE]: Modifikasi slider rail track dan thumb dengan state disabled tambahan saat sukses konversi */}
+            <div className="relative w-full py-2 flex items-center">
+              <input
+                type="range"
+                min="0"
+                max={videoDuration ? maxSafeSliderValue : 10}
+                step="0.1"
+                value={sliderValue}
+                onChange={(e) => setSliderValue(parseFloat(e.target.value))}
+                disabled={loading || !videoFile || !!downloadLink}
+                className="w-full h-6 appearance-none bg-transparent cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed focus:outline-none
+                  [&::-webkit-slider-runnable-track]:bg-[#212121] [&::-webkit-slider-runnable-track]:h-6 [&::-webkit-slider-runnable-track]:rounded-xl [&::-webkit-slider-runnable-track]:border [&::-webkit-slider-runnable-track]:border-[#2d2d2d]
+                  [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-8 [&::-webkit-slider-thumb]:w-8 [&::-webkit-slider-thumb]:mt-[-4] [&::-webkit-slider-thumb]:rounded-xl [&::-webkit-slider-thumb]:bg-[#ffffff] [&::-webkit-slider-thumb]:shadow-[0_2px_10px_rgba(0,0,0,0.6)] [&::-webkit-slider-thumb]:transition-transform [&::-webkit-slider-thumb]:active:scale-95 [&::-webkit-slider-thumb]:border-0
+                  [&::-moz-range-track]:bg-[#212121] [&::-moz-range-track]:h-6 [&::-moz-range-track]:rounded-xl [&::-moz-range-track]:border [&::-moz-range-track]:border-[#2d2d2d]
+                  [&::-moz-range-thumb]:h-8 [&::-moz-range-thumb]:w-8 [&::-moz-range-thumb]:rounded-xl [&::-moz-range-thumb]:bg-[#ffffff] [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:shadow-[0_2px_10px_rgba(0,0,0,0.6)] [&::-moz-range-thumb]:transition-transform [&::-moz-range-thumb]:active:scale-95"
+              />
+            </div>
 
-            <div className="text-xs text-[#737373] font-medium transition-all duration-200">
-              {!videoFile ? (
-                <span>Upload a video to calibrate freezing frame time.</span>
-              ) : (
-                <span>{descriptionText}</span>
-              )}
+            <div className="text-xs text-[#737373] font-medium transition-all duration-200 min-h-4">
+              {descriptionText}
             </div>
           </div>
 
-          {/* Action Trigger Buttons */}
           <div className="flex flex-col gap-2 mt-2">
             {downloadLink ? (
               <div className="flex flex-col sm:flex-row gap-3 w-full">
@@ -301,29 +312,31 @@ export default function Home() {
                     setVideoFile(null);
                     setVideoPreviewUrl("");
                   }}
-                  className="flex-1 py-3 px-4 rounded-xl border border-[#262626] bg-[#262626] hover:bg-[#404040] text-sm font-medium transition-colors text-center"
+                  className="flex-1 py-3 px-4 rounded-xl border border-[#262626] bg-[#262626] hover:bg-[#404040] text-sm font-medium transition-colors text-center cursor-pointer"
                 >
                   Convert Another Video
                 </button>
+
                 <a
                   href={downloadLink}
                   download={`motion_photo_${Date.now()}.jpg`}
-                  className="flex-2 py-3 px-4 rounded-xl bg-[#ffffff] text-[#000000] hover:bg-[#e5e5e5] text-sm font-semibold transition-colors text-center shadow-lg shadow-white/5"
+                  className="flex-1 py-3 px-4 rounded-xl bg-[#ffffff] text-[#000000] hover:bg-[#e5e5e5] text-sm font-semibold transition-colors text-center shadow-lg shadow-white/5 cursor-pointer"
                 >
                   Download Motion Photo ↓
                 </a>
               </div>
             ) : (
+              /* [RENDER]: Main convert button dengan integrasi pointer-events & active scale feedback */
               <button
                 onClick={handleConvert}
                 disabled={loading || !videoFile}
-                className="w-full py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-300 transform active:scale-[0.99] bg-[#ffffff] text-[#000000] hover:bg-[#e5e5e5] disabled:bg-[#1f1f1f] disabled:text-[#525252] disabled:border disabled:border-[#262626] disabled:scale-100 disabled:cursor-not-allowed shadow-md"
+                className="w-full py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-300 transform active:scale-[0.99] bg-[#ffffff] text-[#000000] hover:bg-[#e5e5e5] disabled:bg-[#1f1f1f] disabled:text-[#525252] disabled:border disabled:border-[#262626] disabled:scale-100 disabled:cursor-not-allowed shadow-md cursor-pointer"
               >
                 {loading ? (
                   <div className="flex items-center justify-center gap-2">
                     <svg
                       className="animate-spin h-4 w-4 text-[#525252]"
-                      xmlns="http://www.w3.org/2000/02/22-rdf-syntax-ns#"
+                      xmlns="http://www.w3.org/2000/svg"
                       fill="none"
                       viewBox="0 0 24 24"
                     >
