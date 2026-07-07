@@ -145,23 +145,11 @@ export default function Home() {
     setError("");
 
     try {
-      const formData = new FormData();
-      formData.append("video", videoFile);
-      formData.append("coverTime", computedCoverTime);
+      // WASM processing akan jalan di sini
+      // Tapi kode wasm-nya belum ada di page.js
 
-      const response = await fetch("/api/convert", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Conversion failed");
-      }
-
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      setDownloadLink(url);
+      // For now, just error:
+      throw new Error("WASM converter not yet integrated");
     } catch (err) {
       setError(err.message);
     } finally {
